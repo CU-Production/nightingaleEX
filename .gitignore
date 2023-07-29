@@ -93,3 +93,4 @@ cmake-build-*
 # compress fonts
 embedded_font_ShareTechMono.inc
 embedded_font_fontawesome.inc
+embedded_font_arialuni.inc

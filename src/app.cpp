@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string>
+#include <locale>
+#include <codecvt>
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
@@ -10,8 +13,6 @@
 
 #include "audio.h"
 #include "widgets.h"
-#include "embedded_font_ShareTechMono.inc"
-#include "embedded_font_fontawesome.inc"
 #include "IconsFontAwesome6.h"
 
 #include "nfd.h"
@@ -37,13 +38,14 @@ AppState appState;
 
 ImFont *gTechFont = nullptr;
 ImFont *gIconFont = nullptr;
+ImFont *gCJKFont = nullptr;
 
 // Log a message to the terminal
 void Log(const char* format, ...)
 {
     va_list args;
     va_start(args, format);
-    fprintf(stderr, "LOG: ");
+    fprintf(stderr, u8"LOG: ");
     fprintf(stderr, format, args);
     fprintf(stderr, "\n");
     va_end(args);
@@ -67,13 +69,10 @@ void LoadFonts()
 
     //  gTechFont = io.Fonts->AddFontDefault();
     //  gIconFont = gTechFont;
-    gTechFont = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
-                    ShareTechMono_compressed_data_base85,
-                    20.0f);
+    gTechFont = io.Fonts->AddFontFromFileTTF("fonts/ShareTechMono-Regular.ttf", 20.0f);
     static const ImWchar icon_fa_ranges[] = { 0xF000, 0xF18B, 0 };
-    gIconFont = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
-                    fontawesome_compressed_data_base85,
-                    16.0f, NULL, icon_fa_ranges);
+    gIconFont = io.Fonts->AddFontFromFileTTF( "fonts/fontawesome-webfont.ttf", 16.0f, NULL, icon_fa_ranges);
+    gCJKFont = io.Fonts->AddFontFromFileTTF("fonts/arialuni.ttf", 20.0f, NULL, io.Fonts->GetGlyphRangesChineseFull());
 }
 
 void Style_Mono()
@@ -759,5 +758,7 @@ void DrawAudioPanel()
 
     ImGui::Spacing();
 
+    ImGui::PushFont(gCJKFont);
     ImGui::Text("%s", appState.message);
+    ImGui::PopFont();
 }

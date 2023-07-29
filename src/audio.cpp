@@ -3,6 +3,9 @@
 #include "audio.h"
 
 #include <stdio.h>
+#include <string>
+#include <locale>
+#include <codecvt>
 
 #ifndef MIN
 #define MIN(a,b) ((a)<(b)?(a):(b))
@@ -192,9 +195,14 @@ bool load_audio_file(const char* path)
                                                       deviceConfig.playback.channels,
                                                       deviceConfig.sampleRate);
 //    ma_decoder_config decoderConfig = ma_decoder_config_init_default();
-    result = ma_decoder_init_file(path, &decoderConfig, &decoder);
+
+    std::string source = path;
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+    std::wstring dest = converter.from_bytes(source);
+
+    result = ma_decoder_init_file_w(dest.c_str(), &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {
-        printf("Could not load file: %s\n", path);
+        printf("Could not load file: %ws\n", dest.c_str());
         return false;
     }
 
