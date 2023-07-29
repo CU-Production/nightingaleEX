@@ -1,286 +1,189 @@
+// Dear ImGui: standalone example application for GLFW + OpenGL 3, using programmable pipeline
+// (GLFW is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan/Metal graphics context creation, etc.)
+// If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
+// Read online: https://github.com/ocornut/imgui/tree/master/docs
+
 #include "imgui.h"
-#define SOKOL_IMPL
-#define SOKOL_GLCORE33
-#include "sokol_gfx.h"
-#include "sokol_time.h"
-#include "sokol_log.h"
-#define GLFW_INCLUDE_NONE
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3_loader.h"
+#include "backends/imgui_impl_opengl3.h"
 #include "GLFW/glfw3.h"
+#include "app.h"
 
-const int Width = 1024;
-const int Height = 768;
-const int MaxVertices = (1<<16);
-const int MaxIndices = MaxVertices * 3;
+// [Win32] Our example includes a copy of glfw3.lib pre-compiled with VS2010 to maximize ease of testing and compatibility with old VS compilers.
+// To link with VS2010-era libraries, VS2015+ requires linking with legacy_stdio_definitions.lib, which we do using this pragma.
+// Your own project should not be affected, as you are likely to link with a newer binary of GLFW that is adequate for your version of Visual Studio.
+#if defined(_MSC_VER) && (_MSC_VER >= 1900) && !defined(IMGUI_DISABLE_WIN32_FUNCTIONS)
+#pragma comment(lib, "legacy_stdio_definitions")
+#endif
 
-uint64_t last_time = 0;
-bool show_test_window = true;
-bool show_another_window = false;
-
-sg_pass_action pass_action;
-sg_pipeline pip;
-sg_bindings bind;
-
-typedef struct {
-    ImVec2 disp_size;
-} vs_params_t;
-
-static void draw_imgui(ImDrawData*);
-
-int main() {
-
-    // window and GL context via GLFW and flextGL
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
-    GLFWwindow* w = glfwCreateWindow(Width, Height, "Sokol+ImGui+GLFW", 0, 0);
-    glfwMakeContextCurrent(w);
-    glfwSwapInterval(1);
-
-    // GLFW to ImGui input forwarding
-    glfwSetMouseButtonCallback(w, [](GLFWwindow*, int btn, int action, int /*mods*/) {
-        if ((btn >= 0) && (btn < 3)) {
-            ImGui::GetIO().MouseDown[btn] = (action == GLFW_PRESS);
-        }
-    });
-    glfwSetCursorPosCallback(w, [](GLFWwindow*, double pos_x, double pos_y) {
-        ImGui::GetIO().MousePos.x = float(pos_x);
-        ImGui::GetIO().MousePos.y = float(pos_y);
-    });
-    glfwSetScrollCallback(w, [](GLFWwindow*, double /*pos_x*/, double pos_y){
-        ImGui::GetIO().MouseWheel = float(pos_y);
-    });
-    glfwSetKeyCallback(w, [](GLFWwindow*, int key, int /*scancode*/, int action, int mods){
-        ImGuiIO& io = ImGui::GetIO();
-        if ((key >= 0) && (key < 512)) {
-            io.KeysDown[key] = (action==GLFW_PRESS)||(action==GLFW_REPEAT);
-        }
-        io.KeyCtrl = (0 != (mods & GLFW_MOD_CONTROL));
-        io.KeyAlt = (0 != (mods & GLFW_MOD_ALT));
-        io.KeyShift = (0 != (mods & GLFW_MOD_SHIFT));
-    });
-    glfwSetCharCallback(w, [](GLFWwindow*, unsigned int codepoint){
-        ImGui::GetIO().AddInputCharacter((ImWchar)codepoint);
-    });
-
-    // setup sokol_gfx and sokol_time
-    stm_setup();
-    sg_desc desc = { };
-    desc.logger.func = slog_func;
-    sg_setup(&desc);
-    assert(sg_isvalid());
-
-    // setup Dear Imgui
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
-    io.Fonts->AddFontDefault();
-    io.KeyMap[ImGuiKey_Tab] = GLFW_KEY_TAB;
-    io.KeyMap[ImGuiKey_LeftArrow] = GLFW_KEY_LEFT;
-    io.KeyMap[ImGuiKey_RightArrow] = GLFW_KEY_RIGHT;
-    io.KeyMap[ImGuiKey_UpArrow] = GLFW_KEY_UP;
-    io.KeyMap[ImGuiKey_DownArrow] = GLFW_KEY_DOWN;
-    io.KeyMap[ImGuiKey_Home] = GLFW_KEY_HOME;
-    io.KeyMap[ImGuiKey_End] = GLFW_KEY_END;
-    io.KeyMap[ImGuiKey_Delete] = GLFW_KEY_DELETE;
-    io.KeyMap[ImGuiKey_Backspace] = GLFW_KEY_BACKSPACE;
-    io.KeyMap[ImGuiKey_Enter] = GLFW_KEY_ENTER;
-    io.KeyMap[ImGuiKey_Escape] = GLFW_KEY_ESCAPE;
-    io.KeyMap[ImGuiKey_A] = GLFW_KEY_A;
-    io.KeyMap[ImGuiKey_C] = GLFW_KEY_C;
-    io.KeyMap[ImGuiKey_V] = GLFW_KEY_V;
-    io.KeyMap[ImGuiKey_X] = GLFW_KEY_X;
-    io.KeyMap[ImGuiKey_Y] = GLFW_KEY_Y;
-    io.KeyMap[ImGuiKey_Z] = GLFW_KEY_Z;
-
-    // dynamic vertex- and index-buffers for imgui-generated geometry
-    sg_buffer_desc vbuf_desc = { };
-    vbuf_desc.usage = SG_USAGE_STREAM;
-    vbuf_desc.size = MaxVertices * sizeof(ImDrawVert);
-    bind.vertex_buffers[0] = sg_make_buffer(&vbuf_desc);
-
-    sg_buffer_desc ibuf_desc = { };
-    ibuf_desc.type = SG_BUFFERTYPE_INDEXBUFFER;
-    ibuf_desc.usage = SG_USAGE_STREAM;
-    ibuf_desc.size = MaxIndices * sizeof(ImDrawIdx);
-    bind.index_buffer = sg_make_buffer(&ibuf_desc);
-
-    // font texture and sampler for imgui's default font
-    unsigned char* font_pixels;
-    int font_width, font_height;
-    io.Fonts->GetTexDataAsRGBA32(&font_pixels, &font_width, &font_height);
-
-    sg_image_desc img_desc = { };
-    img_desc.width = font_width;
-    img_desc.height = font_height;
-    img_desc.pixel_format = SG_PIXELFORMAT_RGBA8;
-    img_desc.data.subimage[0][0] = sg_range{ font_pixels, size_t(font_width * font_height * 4) };
-    bind.fs.images[0] = sg_make_image(&img_desc);
-
-    sg_sampler_desc smp_desc = { };
-    smp_desc.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
-    smp_desc.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
-    bind.fs.samplers[0] = sg_make_sampler(&smp_desc);
-
-    // shader object for imgui rendering
-    sg_shader_desc shd_desc = { };
-    auto& ub = shd_desc.vs.uniform_blocks[0];
-    ub.size = sizeof(vs_params_t);
-    ub.uniforms[0].name = "disp_size";
-    ub.uniforms[0].type = SG_UNIFORMTYPE_FLOAT2;
-    shd_desc.vs.source =
-            "#version 330\n"
-            "uniform vec2 disp_size;\n"
-            "layout(location=0) in vec2 position;\n"
-            "layout(location=1) in vec2 texcoord0;\n"
-            "layout(location=2) in vec4 color0;\n"
-            "out vec2 uv;\n"
-            "out vec4 color;\n"
-            "void main() {\n"
-            "    gl_Position = vec4(((position/disp_size)-0.5)*vec2(2.0,-2.0), 0.5, 1.0);\n"
-            "    uv = texcoord0;\n"
-            "    color = color0;\n"
-            "}\n";
-    shd_desc.fs.images[0].used = true;
-    shd_desc.fs.samplers[0].used = true;
-    shd_desc.fs.image_sampler_pairs[0].used = true;
-    shd_desc.fs.image_sampler_pairs[0].glsl_name = "tex";
-    shd_desc.fs.image_sampler_pairs[0].image_slot = 0;
-    shd_desc.fs.image_sampler_pairs[0].sampler_slot = 0;
-    shd_desc.fs.source =
-            "#version 330\n"
-            "uniform sampler2D tex;\n"
-            "in vec2 uv;\n"
-            "in vec4 color;\n"
-            "out vec4 frag_color;\n"
-            "void main() {\n"
-            "    frag_color = texture(tex, uv) * color;\n"
-            "}\n";
-    sg_shader shd = sg_make_shader(&shd_desc);
-
-    // pipeline object for imgui rendering
-    sg_pipeline_desc pip_desc = { };
-    pip_desc.layout.buffers[0].stride = sizeof(ImDrawVert);
-    auto& attrs = pip_desc.layout.attrs;
-    attrs[0].format = SG_VERTEXFORMAT_FLOAT2;
-    attrs[1].format = SG_VERTEXFORMAT_FLOAT2;
-    attrs[2].format = SG_VERTEXFORMAT_UBYTE4N;
-    pip_desc.shader = shd;
-    pip_desc.index_type = SG_INDEXTYPE_UINT16;
-    pip_desc.colors[0].blend.enabled = true;
-    pip_desc.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
-    pip_desc.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-    pip_desc.colors[0].write_mask = SG_COLORMASK_RGB;
-    pip = sg_make_pipeline(&pip_desc);
-
-    // initial clear color
-    pass_action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass_action.colors[0].clear_value = { 0.0f, 0.5f, 0.7f, 1.0f };
-
-    // draw loop
-    while (!glfwWindowShouldClose(w)) {
-        int cur_width, cur_height;
-        glfwGetFramebufferSize(w, &cur_width, &cur_height);
-
-        // this is standard ImGui demo code
-        ImGuiIO& io = ImGui::GetIO();
-        io.DisplaySize = ImVec2(float(cur_width), float(cur_height));
-        io.DeltaTime = (float) stm_sec(stm_laptime(&last_time));
-        ImGui::NewFrame();
-
-        // 1. Show a simple window
-        // Tip: if we don't call ImGui::Begin()/ImGui::End() the widgets appears in a window automatically called "Debug"
-        static float f = 0.0f;
-        ImGui::Text("Hello, world!");
-        ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-        ImGui::ColorEdit3("clear color", &pass_action.colors[0].clear_value.r);
-        if (ImGui::Button("Test Window")) show_test_window ^= 1;
-        if (ImGui::Button("Another Window")) show_another_window ^= 1;
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-
-        // 2. Show another simple window, this time using an explicit Begin/End pair
-        if (show_another_window) {
-            ImGui::SetNextWindowSize(ImVec2(200,100), ImGuiCond_FirstUseEver);
-            ImGui::Begin("Another Window", &show_another_window);
-            ImGui::Text("Hello");
-            ImGui::End();
-        }
-
-        // 3. Show the ImGui test window. Most of the sample code is in ImGui::ShowDemoWindow()
-        if (show_test_window) {
-            ImGui::SetNextWindowPos(ImVec2(460, 20), ImGuiCond_FirstUseEver);
-            ImGui::ShowDemoWindow();
-        }
-
-        // the sokol_gfx draw pass
-        sg_begin_default_pass(&pass_action, cur_width, cur_height);
-        ImGui::Render();
-        draw_imgui(ImGui::GetDrawData());
-        sg_end_pass();
-        sg_commit();
-        glfwSwapBuffers(w);
-        glfwPollEvents();
-    }
-
-    /* cleanup */
-    ImGui::DestroyContext();
-    sg_shutdown();
-    glfwTerminate();
-    return 0;
+static void glfw_error_callback(int error, const char* description)
+{
+    fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-// draw ImGui draw lists via sokol-gfx
-void draw_imgui(ImDrawData* draw_data) {
-    assert(draw_data);
-    if (draw_data->CmdListsCount == 0) {
-        return;
+int main(int argc, char** argv)
+{
+    // Setup window
+    glfwSetErrorCallback(glfw_error_callback);
+    if (!glfwInit())
+        return 1;
+
+    // Decide GL+GLSL versions
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+    // GL ES 2.0 + GLSL 100
+    const char* glsl_version = "#version 100";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(__APPLE__)
+    // GL 3.2 + GLSL 150
+    const char* glsl_version = "#version 150";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+#else
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+#endif
+
+    // Create window with graphics context
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Nightingale", NULL, NULL);
+    if (window == NULL)
+        return 1;
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1); // Enable vsync
+
+    // Initialize OpenGL loader
+#if defined(IMGUI_IMPL_OPENGL_LOADER_GL3W)
+    bool err = gl3wInit() != 0;
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLEW)
+    bool err = glewInit() != GLEW_OK;
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLAD)
+    bool err = gladLoadGL() == 0;
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLAD2)
+    bool err = gladLoadGL(glfwGetProcAddress) == 0; // glad2 recommend using the windowing library loader instead of the (optionally) bundled one.
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLBINDING2)
+    bool err = false;
+    glbinding::Binding::initialize();
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLBINDING3)
+    bool err = false;
+    glbinding::initialize([](const char* name) { return (glbinding::ProcAddress)glfwGetProcAddress(name); });
+#else
+    bool err = false; // If you use IMGUI_IMPL_OPENGL_LOADER_CUSTOM, your loader is likely to requires some form of initialization.
+#endif
+    if (err)
+    {
+        fprintf(stderr, "Failed to initialize OpenGL loader!\n");
+        return 1;
     }
 
-    // render the command list
-    sg_apply_pipeline(pip);
-    vs_params_t vs_params;
-    vs_params.disp_size.x = ImGui::GetIO().DisplaySize.x;
-    vs_params.disp_size.y = ImGui::GetIO().DisplaySize.y;
-    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, SG_RANGE(vs_params));
-    for (int cl_index = 0; cl_index < draw_data->CmdListsCount; cl_index++) {
-        const ImDrawList* cl = draw_data->CmdLists[cl_index];
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+    // io.ConfigFlags |= ImGuiConfigFlags_EnablePowerSavingMode;
+    io.ConfigViewportsNoAutoMerge = true;
+    //io.ConfigViewportsNoTaskBarIcon = true;
 
-        // append vertices and indices to buffers, record start offsets in resource binding struct
-        const uint32_t vtx_size = cl->VtxBuffer.size() * sizeof(ImDrawVert);
-        const uint32_t idx_size = cl->IdxBuffer.size() * sizeof(ImDrawIdx);
-        const uint32_t vb_offset = sg_append_buffer(bind.vertex_buffers[0], { &cl->VtxBuffer.front(), vtx_size });
-        const uint32_t ib_offset = sg_append_buffer(bind.index_buffer, { &cl->IdxBuffer.front(), idx_size });
-        /* don't render anything if the buffer is in overflow state (this is also
-            checked internally in sokol_gfx, draw calls that attempt from
-            overflowed buffers will be silently dropped)
-        */
-        if (sg_query_buffer_overflow(bind.vertex_buffers[0]) ||
-            sg_query_buffer_overflow(bind.index_buffer))
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsClassic();
+
+    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+    MainInit(argc, argv);
+
+    // Load Fonts
+    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
+    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
+    // - If the file cannot be loaded, the function will return NULL. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
+    // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
+    // - Read 'docs/FONTS.md' for more instructions and details.
+    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
+    //io.Fonts->AddFontDefault();
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
+    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
+    //IM_ASSERT(font != NULL);
+
+    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+
+    // Main loop
+    bool keepGoing = true;
+    while (keepGoing && !glfwWindowShouldClose(window))
+    {
+        glfwHideWindow(window); // hide the native main window
+
+        // Poll and handle events (inputs, window resize, etc.)
+        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
+        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
+        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application.
+        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+        // ImGui_ImplGlfw_WaitForEvent();
+        glfwPollEvents();
+
+        // Start the Dear ImGui frame
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        keepGoing = MainGui();
+        if (!keepGoing) break;
+
+        // Rendering
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // Update and Render additional Platform Windows
+        // (Platform functions may change the current OpenGL context, so we save/restore it to make it easier to paste this code elsewhere.
+        //  For this specific demo app we could also call glfwMakeContextCurrent(window) directly)
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
-            continue;
+            GLFWwindow* backup_current_context = glfwGetCurrentContext();
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            glfwMakeContextCurrent(backup_current_context);
         }
 
-        bind.vertex_buffer_offsets[0] = vb_offset;
-        bind.index_buffer_offset = ib_offset;
-        sg_apply_bindings(&bind);
-
-        int base_element = 0;
-        for (const ImDrawCmd& pcmd : cl->CmdBuffer) {
-            if (pcmd.UserCallback) {
-                pcmd.UserCallback(cl, &pcmd);
-            }
-            else {
-                const int scissor_x = (int) (pcmd.ClipRect.x);
-                const int scissor_y = (int) (pcmd.ClipRect.y);
-                const int scissor_w = (int) (pcmd.ClipRect.z - pcmd.ClipRect.x);
-                const int scissor_h = (int) (pcmd.ClipRect.w - pcmd.ClipRect.y);
-                sg_apply_scissor_rect(scissor_x, scissor_y, scissor_w, scissor_h, true);
-                sg_draw(base_element, pcmd.ElemCount, 1);
-            }
-            base_element += pcmd.ElemCount;
-        }
+        glfwSwapBuffers(window);
     }
+
+    MainCleanup();
+
+    // Cleanup
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+
+    return 0;
 }

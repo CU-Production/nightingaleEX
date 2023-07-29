@@ -21,6 +21,9 @@ add_custom_command(
 
 add_executable(nightingaleEX
         src/main.cpp
+        src/app.cpp
+        src/audio.cpp
+        src/widgets.cpp
         ${PROJECT_SOURCE_DIR}/fonts/include/embedded_font_ShareTechMono.inc
         ${PROJECT_SOURCE_DIR}/fonts/include/embedded_font_fontawesome.inc
 )
@@ -32,4 +35,6 @@ target_link_libraries(nightingaleEX PRIVATE
         imgui
         miniaudio
         sokol
+        nfd
+        pffft
 )
