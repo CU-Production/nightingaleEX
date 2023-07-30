@@ -2,7 +2,7 @@
 A music player based on [nightingale](https://github.com/jminor/nightingale)
 
 - Add utf8 & cjk font support
-- Add native win32 dx11/dx12 backend
+- Add native win32 dx11/dx12/ogl33 backend
 - Add glfw vulkan backend
 
 ![img](screenshots/Snipaste_2023-07-29_18-42-32.png)

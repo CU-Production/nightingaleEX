@@ -100,3 +100,26 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ARGS ${CMAKE_CURRENT_SOURCE_DIR}/fonts ${CMAKE_CURRENT_BINARY_DIR}/fonts
 )
+
+add_executable(nightingaleEX-win32-ogl33
+        src/main_win32_ogl33.cpp
+        src/app.cpp
+        src/audio.cpp
+        src/widgets.cpp
+        src/backends/imgui_impl_win32.cpp
+        src/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(nightingaleEX-win32-ogl33 PRIVATE
+        fonts/include
+)
+target_link_libraries(nightingaleEX-win32-ogl33 PRIVATE
+        imgui
+        miniaudio
+        nfd
+        pffft
+)
+add_custom_command(
+        TARGET nightingaleEX-win32-ogl33 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ARGS ${CMAKE_CURRENT_SOURCE_DIR}/fonts ${CMAKE_CURRENT_BINARY_DIR}/fonts
+)
