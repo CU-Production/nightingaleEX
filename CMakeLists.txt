@@ -74,3 +74,29 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ARGS ${CMAKE_CURRENT_SOURCE_DIR}/fonts ${CMAKE_CURRENT_BINARY_DIR}/fonts
 )
+
+find_package(Vulkan REQUIRED)
+add_executable(nightingaleEX-glfw-vk
+        src/main_glfw_vk.cpp
+        src/app.cpp
+        src/audio.cpp
+        src/widgets.cpp
+        src/backends/imgui_impl_glfw.cpp
+        src/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(nightingaleEX-glfw-vk PRIVATE
+        fonts/include
+)
+target_link_libraries(nightingaleEX-glfw-vk PRIVATE
+        glfw
+        imgui
+        miniaudio
+        nfd
+        pffft
+        Vulkan::Vulkan
+)
+add_custom_command(
+        TARGET nightingaleEX-glfw-vk POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ARGS ${CMAKE_CURRENT_SOURCE_DIR}/fonts ${CMAKE_CURRENT_BINARY_DIR}/fonts
+)
